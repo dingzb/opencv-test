@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding=utf-8
 
 '''
 Lucas-Kanade tracker
@@ -26,15 +27,17 @@ import cv2
 import video
 from common import anorm2, draw_str
 from time import clock
+import math
 
-lk_params = dict( winSize  = (15, 15),
-                  maxLevel = 2,
-                  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+lk_params = dict(winSize=(15, 15),
+                 maxLevel=2,
+                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-feature_params = dict( maxCorners = 500,
-                       qualityLevel = 0.3,
-                       minDistance = 7,
-                       blockSize = 7 )
+feature_params = dict(maxCorners=500,
+                      qualityLevel=0.3,
+                      minDistance=7,
+                      blockSize=7)
+
 
 class App:
     def __init__(self, video_src):
@@ -55,7 +58,15 @@ class App:
                 p0 = np.float32([tr[-1] for tr in self.tracks]).reshape(-1, 1, 2)
                 p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
                 p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-                d = abs(p0-p0r).reshape(-1, 2).max(-1)
+
+                for pp in p0:
+                    print(str(round(pp, 2))) + '\t',
+                print()
+                for pp in p0r:
+                    print(str(round(pp, 2))) + '\t',
+                print("-----------------------------------")
+
+                d = abs(p0 - p0r).reshape(-1, 2).max(-1)
                 good = d < 1
                 new_tracks = []
                 for tr, (x, y), good_flag in zip(self.tracks, p1.reshape(-1, 2), good):
@@ -75,11 +86,14 @@ class App:
                 mask[:] = 255
                 for x, y in [np.int32(tr[-1]) for tr in self.tracks]:
                     cv2.circle(mask, (x, y), 5, 0, -1)
-                p = cv2.goodFeaturesToTrack(frame_gray, mask = mask, **feature_params)
+                # ROI:感兴趣区域。函数在ROI中计算角点，如果 mask 为 NULL，则选择整个图像。 必须为单通道的灰度图，大小与输入图像相同。mask对应的点不为0，表示计算该点。函数
+                # cvGoodFeaturesToTrack 在图像中寻找具有大特征值的角点。该函数，首先用cvCornerMinEigenVal 计算输入图像的每一个象素点的最小特征值，并将结果存储到变量
+                # eig_image 中。然后进行非最大值抑制（仅保留3x3邻域中的局部最大值）。下一步将最小特征值小于 quality_level•max(eig_image(x,
+                # y)) 排除掉。最后，函数确保所有发现的角点之间具有足够的距离，（最强的角点第一个保留，然后检查新的角点与已有角点之间的距离大于 min_distance ）。
+                p = cv2.goodFeaturesToTrack(frame_gray, mask=mask, **feature_params)
                 if p is not None:
                     for x, y in np.float32(p).reshape(-1, 2):
                         self.tracks.append([(x, y)])
-
 
             self.frame_idx += 1
             self.prev_gray = frame_gray
@@ -88,6 +102,7 @@ class App:
             ch = 0xFF & cv2.waitKey(1)
             if ch == 27:
                 break
+
 
 def main():
     import sys
@@ -99,6 +114,7 @@ def main():
     print(__doc__)
     App(video_src).run()
     cv2.destroyAllWindows()
+
 
 if __name__ == '__main__':
     main()

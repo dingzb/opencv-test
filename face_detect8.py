@@ -304,148 +304,20 @@ def main():
         if len(rectangles) == 1:  # 限制一张人脸
             for rectangle in rectangles:
                 rx0, ry0, rx1, ry1 = rectangle
-                # if rx1 - rx0 != 151 and ry1 - ry0 != 151:  # 限定人脸识别框的大小
-                #     continue
+                mask = np.zeros_like(gray[ry0:ry1, rx0:rx1])
+                mask[:] = 255
+                for x, y in [np.int32(tr[-1]) for tr in tracks]:
+                    cv2.circle(mask, (x, y), 5, 0, -1)
+                p = cv2.goodFeaturesToTrack(gray[ry0:ry1, rx0:rx1], mask=mask, **feature_params)
+                if p is not None:
+                    for x, y in np.int16(p).reshape(-1, 2):
+                        cv2.circle(img[ry0:ry1, rx0:rx1], (x, y), 2, (0, 255, 0), -1)
+                    print len(p)
                 draw_rectangle(img, rectangle, color=(255, 225, 0))  # 人脸范围
-                # draw_rectangle(img, rectangle, scaling=1.4)  # 扩大后的范围
-                rectangles_eye = detect(gray[ry0:ry1, rx0:rx1], e_cascade)
-
-
-
-                # if len(rectangles_eye) < 1:  # 限制必须两只眼睛都识别出来
-                #     continue
-
-                test_areas_face = []
-                # size = 32
-                # face_h = ry1 - ry0
-                # face_w = rx1 - rx0
-                # test_areas_face.append((0, 0, size, size))  # lu
-                # test_areas_face.append((face_w - size, 0, face_w, size))  # ru
-                # test_areas_face.append((face_w - size, face_h - size, face_w, face_h))  # rd
-                # test_areas_face.append((0, face_h - size, size, face_h))  # ld
-                # test_areas_face.append((face_w / 4, 0, face_w / 4 * 3, size))  # mu
-                # test_areas_face.append((face_w / 4, face_h - size, face_w / 4 * 3, face_h))  # md
-                # test_areas_face.append((0, face_h / 4, size, face_h / 4 * 3))  # ml
-                # test_areas_face.append((face_w - size, face_h / 4, face_w, face_h / 4 * 3))  # mr
-
-                draw_rectangles(img[ry0:ry1, rx0:rx1], rectangles_eye, color=(255, 0, 225))
-
-                draw_rectangles(img[ry0:ry1, rx0:rx1], test_areas_face, color=(25, 23, 225))
-
-                eye_flow_lines = []  # 眼睛光流位移
-                eye_flow_angs = []  # 眼睛光流角度
-                for erx0, ery0, erx1, ery1 in rectangles_eye:
-                    if len(tracks) > 0:
-                        img0, img1 = prev_gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1]
-                        p0 = np.float32([tr[-1] for tr in tracks]).reshape(-1, 1, 2)
-                        p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
-                        p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-                        d = abs(p0 - p0r).reshape(-1, 2).max(-1)
-                        good = d < 1
-                        new_tracks = []
-                        for tr, (x, y), good_flag in zip(tracks, p1.reshape(-1, 2), good):
-                            if not good_flag:
-                                continue
-                            tr.append((x, y))
-                            if len(tr) > track_len:
-                                del tr[0]
-                            new_tracks.append(tr)
-                            cv2.circle(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], (x, y), 2, (0, 255, 0), -1)
-                        tracks = new_tracks
-                        # cv2.polylines(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], [np.int32(tr) for tr in tracks], False, (0, 255, 0))
-                        draw_str(img, (200, 20), 'track count: %d' % len(tracks))
-
-                    if frame_idx % detect_interval == 0:
-                        mask = np.zeros_like(gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1])
-                        mask[:] = 255
-                        for x, y in [np.int32(tr[-1]) for tr in tracks]:
-                            cv2.circle(mask, (x, y), 2, 0, -1)
-                        p = cv2.goodFeaturesToTrack(gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], mask=mask, **feature_params)
-                        if p is not None:
-                            for x, y in np.float32(p).reshape(-1, 2):
-                                tracks.append([(x, y)])
-
-
-
-
-                test_flow_lines = []  # 测试区域光流位移
-                test_flow_angs = []  # 测试区域光流角度
-                for erx0, ery0, erx1, ery1 in test_areas_face:
-                    test_flow = opt_flow(prev_gray[ery0:ery1, erx0:erx1], gray[ery0:ery1, erx0:erx1])  # get opt flow
-                    lines = draw_flow(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], test_flow, step=4)  # 显示光流点
-                    test_flow_lines.append(lines)
-
-                    # mag, ang = cv2.cartToPolar(eye_flow[..., 0], eye_flow[..., 1])
-                    # test_flow_angs.append(ang)
-
-                eye_sorted = []  # 排序后的长度集合(眼睛)
-                for lines in eye_flow_lines:
-                    mds = []
-                    for (x1, y1), (x2, y2) in lines:
-                        md = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-                        mds.append(md)
-                    eye_sorted.append(sorted(mds, reverse=True))
-
-                test_sorted = []  # 排序后的长度集合(test)
-                for lines in test_flow_lines:
-                    mds = []
-                    for (x1, y1), (x2, y2) in lines:
-                        md = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-                        mds.append(md)
-                    test_sorted.append(sorted(mds, reverse=True))
-
-                # ========打印前十个=========================
-                if True:
-                    for i, md2 in enumerate(eye_sorted):
-                        count = 0
-                        print '眼睛' + str(i + 1) + ':\t',
-                        for md in md2:
-                            count += 1
-                            if count > 10:
-                                break
-                            print str(round(md, 2)) + ',',
-                        print ''
-                    print ''
-
-                    for i, md2 in enumerate(test_sorted):
-                        count = 0
-                        print '测试' + str(i + 1) + ':\t',
-                        for md in md2:
-                            count += 1
-                            if count > 10:
-                                break
-                            print str(round(md, 2)) + ',',
-                        print ''
-                    print ''
-
-                if False:
-                    # ============= 打印前十个平均值 ============
-                    for i, md2 in enumerate(eye_sorted):
-                        count = 0
-                        print '眼睛' + str(i + 1) + ':\t',
-                        sum_avg = []
-                        for md in md2:
-                            count += 1
-                            if count > 10:
-                                break
-                            sum_avg.append(md)
-                        print round(1.0 * sum(sum_avg) / len(sum_avg), 2)
-
-                    for i, md2 in enumerate(test_sorted):
-                        count = 0
-                        print '测试' + str(i + 1) + ':\t',
-                        sum_avg = []
-                        for md in md2:
-                            count += 1
-                            if count > 10:
-                                break
-                            sum_avg.append(md)
-                        print round(1.0 * sum(sum_avg) / len(sum_avg), 2)
-                    print ''
-
+                # cv2.imshow("Face detect", img[ry0:ry1, rx0:rx1])
         prev_gray = gray
         dt = clock() - t
-        draw_str(img, (20, 20), 'time: %.1f ms' % (dt * 1000))
+        # draw_str(img, (20, 20), 'time: %.1f ms' % (dt * 1000))
         cv2.imshow("Face detect", img)
     cap.release()
     cv2.destroyAllWindows()
