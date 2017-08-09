@@ -316,17 +316,17 @@ def main():
                 #     continue
 
                 test_areas_face = []
-                # size = 32
-                # face_h = ry1 - ry0
-                # face_w = rx1 - rx0
-                # test_areas_face.append((0, 0, size, size))  # lu
-                # test_areas_face.append((face_w - size, 0, face_w, size))  # ru
-                # test_areas_face.append((face_w - size, face_h - size, face_w, face_h))  # rd
-                # test_areas_face.append((0, face_h - size, size, face_h))  # ld
-                # test_areas_face.append((face_w / 4, 0, face_w / 4 * 3, size))  # mu
-                # test_areas_face.append((face_w / 4, face_h - size, face_w / 4 * 3, face_h))  # md
-                # test_areas_face.append((0, face_h / 4, size, face_h / 4 * 3))  # ml
-                # test_areas_face.append((face_w - size, face_h / 4, face_w, face_h / 4 * 3))  # mr
+                size = 32
+                face_h = ry1 - ry0
+                face_w = rx1 - rx0
+                test_areas_face.append((0, 0, size, size))  # lu
+                test_areas_face.append((face_w - size, 0, face_w, size))  # ru
+                test_areas_face.append((face_w - size, face_h - size, face_w, face_h))  # rd
+                test_areas_face.append((0, face_h - size, size, face_h))  # ld
+                test_areas_face.append((face_w / 4, 0, face_w / 4 * 3, size))  # mu
+                test_areas_face.append((face_w / 4, face_h - size, face_w / 4 * 3, face_h))  # md
+                test_areas_face.append((0, face_h / 4, size, face_h / 4 * 3))  # ml
+                test_areas_face.append((face_w - size, face_h / 4, face_w, face_h / 4 * 3))  # mr
 
                 draw_rectangles(img[ry0:ry1, rx0:rx1], rectangles_eye, color=(255, 0, 225))
 
@@ -352,7 +352,7 @@ def main():
                             new_tracks.append(tr)
                             cv2.circle(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], (x, y), 2, (0, 255, 0), -1)
                         tracks = new_tracks
-                        # cv2.polylines(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], [np.int32(tr) for tr in tracks], False, (0, 255, 0))
+                        cv2.polylines(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1], [np.int32(tr) for tr in tracks], False, (0, 255, 0))
                         draw_str(img, (200, 20), 'track count: %d' % len(tracks))
 
                     if frame_idx % detect_interval == 0:

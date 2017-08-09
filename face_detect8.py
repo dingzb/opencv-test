@@ -7,11 +7,37 @@ Keys:
     ESC    - exit
 """
 
+from __future__ import print_function
 import cv2
 import numpy as np
 import math
 import time
 from common import clock
+
+
+def detect(img, cascade, option=None):
+    """detect base on cascade type"""
+    if option is None:
+        option = {
+            "scaleFactor": 1.4,
+            "minNeighbors": 4,
+            "minSize": (30, 30),
+            "flags": cv2.CASCADE_SCALE_IMAGE
+        }
+    # detects = cascade.detectMultiScale(img, scaleFactor=option["scaleFactor"], minNeighbors=option["minNeighbors"],
+    #                                    minSize=option["minSize"], flags=option["flags"])
+    detects = cascade.detectMultiScale(img, **option)
+    if len(detects) == 0:
+        return []
+    detects[:, 2:] += detects[:, :2]
+    return detects
+
+
+def draw_rectangle(img, rectangle, color=(0, 255, 0), scaling=1.0):
+    """draw rectangle. """
+    x0, y0, x1, y1 = rectangle
+    xd, yd = scale((x0, y0), (x1, y1), scaling)
+    cv2.rectangle(img, xd, yd, color, 2)
 
 
 def scale((x0, y0), (x1, y1), scaling=1.0, limit=None):
@@ -38,223 +64,6 @@ def scale((x0, y0), (x1, y1), scaling=1.0, limit=None):
     return (rx0, ry0), (rx1, ry1)
 
 
-def draw_rectangles(img, rectangles, color=(0, 255, 0), scaling=1.0):
-    """draw rectangle. """
-    for x0, y0, x1, y1 in rectangles:
-        xd, yd = scale((x0, y0), (x1, y1), scaling)
-        cv2.rectangle(img, xd, yd, color, 2)
-
-
-def draw_rectangle(img, rectangle, color=(0, 255, 0), scaling=1.0):
-    """draw rectangle. """
-    x0, y0, x1, y1 = rectangle
-    xd, yd = scale((x0, y0), (x1, y1), scaling)
-    cv2.rectangle(img, xd, yd, color, 2)
-
-
-def detect(img, cascade, option=None):
-    """detect base on cascade type"""
-    if option is None:
-        option = {
-            "scaleFactor": 1.4,
-            "minNeighbors": 4,
-            "minSize": (30, 30),
-            "flags": cv2.CASCADE_SCALE_IMAGE
-        }
-    # detects = cascade.detectMultiScale(img, scaleFactor=option["scaleFactor"], minNeighbors=option["minNeighbors"],
-    #                                    minSize=option["minSize"], flags=option["flags"])
-    detects = cascade.detectMultiScale(img, **option)
-    if len(detects) == 0:
-        return []
-    detects[:, 2:] += detects[:, :2]
-    return detects
-
-
-def draw_flow(detected, flow, show=True, step=16, color=(0, 0, 255)):
-    """draw as line with flow"""
-    h, w = detected.shape[:2]
-    y, x = np.mgrid[step / 2:h:step, step / 2:w:step].reshape(2, -1).astype(int)
-    fx, fy = flow[y, x].T
-    lines = np.vstack([x, y, x + fx, y + fy]).T.reshape(-1, 2, 2)
-    lines = np.int32(lines + 0.5)
-    # vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    vis = detected
-    if show:
-        cv2.polylines(vis, lines, 0, color)  # draw lines
-        for (x1, y1), (x2, y2) in lines:
-            cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)  # redraw the start point
-    return lines
-
-
-def opt_flow(p_gray, n_gray, option=None):
-    def_option = dict(
-        pyr_scale=0.5,
-        levels=3,
-        winsize=15,
-        iterations=3,
-        poly_n=5,
-        poly_sigma=1.2,
-        flags=0
-    )
-
-    if option is not None:
-        def_option.update(option)
-    flow = cv2.calcOpticalFlowFarneback(p_gray, n_gray, None, **def_option)
-    return flow
-
-
-def anti_spoofing(lines):  # for angle
-    """anti spoofing"""
-    # return  True
-    if offset_check(lines, 8, 0.0017):
-        return False
-    vs = []
-    (lu, ru, rd, ld) = (0, 0, 0, 0)
-    for (x0, y0), (x1, y1) in lines:
-        if x1 - x0 < 0 and y1 - y0 > 0:
-            lu += 1
-            vs.append(math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180)
-        elif x1 - x0 > 0 and y1 - y0 > 0:
-            ru += 1
-            vs.append(180 - math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180)
-        elif x1 - x0 > 0 and y1 - y0 < 0:
-            rd += 1
-            vs.append(180 + math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180)
-        elif x1 - x0 < 0 and y1 - y0 < 0:
-            ld += 1
-            vs.append(360 - math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180)
-    if len(vs) == 0:
-        return False
-    else:
-        fc = var_angle(vs)
-        # if 13000 > fc > 9000:
-        #     print fc
-        return 13000 > fc > 9000
-
-
-def anti_spoofing2(lines):  # for offset
-    """
-    with module of vector
-    根据偏移中不一致性的 方差进行判断，可排除静止照片
-    """
-    if offset_check(lines):
-        # if not offset_check(lines, 2.0, 3.0, 0.02):
-        return False
-    # mds = []
-    # for (x0, y0), (x1, y1) in lines:
-    #     md = math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2)
-    #     mds.append(md)
-    # md_avg = sum(mds) / len(mds)
-    # sum_pow = 0
-    # for md in mds:
-    #     sum_pow += math.pow(md - md_avg, 2)
-    # md_var = 1.0 * sum_pow / len(mds)
-    # # if md_var > 0.1:
-    # #     print md_var
-    md_var = var_offset(lines)
-    return 0.2 > md_var > 0.1  # 人眼眨动范围大概在 0.2-0.1
-
-
-def position_check_eye(lines, eye_areas):
-    """
-    check if the offset include in eys area.
-    偏移 30%在识别出的眼睛的范围内即认为是眼睛在眨动（眼睛的识别框有可能只有一个，所以占比会比较低些）
-    """
-    lines = offset_check_get(lines, 1, 8)
-    if len(lines) == 0:
-        return False
-    inc = []
-    for rx0, ry0, rx1, ry1 in eye_areas:
-        (rx0, ry0), (rx1, ry1) = scale((rx0, ry0), (rx1, ry1), 1.1)
-        for line in lines:
-            (x0, y0), (x1, y1) = line
-            if rx0 < x0 < rx1 and rx0 < x1 < rx1 and ry0 < y0 < ry1 and ry0 < y1 < ry1:
-                inc.append(line)
-    fc = var_offset(inc)
-    print 1.0 * len(inc) / len(lines)
-    # print "--------"
-    print fc
-    # print inc
-    print '--------'
-    return 1.0 * len(inc) / len(lines) > 0.01 and fc > 0.06
-
-
-def var_offset(lines):
-    """
-    向量 模 的 方差
-    :param lines:
-    :return:
-    """
-    if len(lines) == 0:
-        return 0
-    mds = []
-    for (x0, y0), (x1, y1) in lines:
-        md = math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2)
-        mds.append(md)
-    md_avg = sum(mds) / len(mds)
-    sum_pow = 0
-    for md in mds:
-        sum_pow += math.pow(md - md_avg, 2)
-    md_var = 1.0 * sum_pow / len(mds)
-    # if md_var > 0.1:
-    #     print md_var
-    return md_var
-
-
-def var_angle(array):
-    """variance"""
-    if len(array) == 0:
-        return
-    sum = 0
-    for num in array:
-        sum += num
-    avg = sum / len(array)
-
-    sum2 = 0
-
-    for num in array:
-        jj = num - avg
-        if jj > 180:
-            jj = 360 - jj
-        sum2 += math.pow(jj, 2)
-    rs = sum2 / len(array)
-    # df = open('d:\\a.txt', 'w')
-    # for a in array:
-    #     df.write(str(a) + '\t')
-    #     print(a)
-    # df.close()
-    return rs
-
-
-def offset_check(vectors, min_offset=3.0, percent=0.8):
-    """
-    offset check. if the vector module between min_offset and max_offset, and below percent return true
-    排除照片的大幅度移动
-    偏移幅度大于3.0 且占所有的偏移点大于80%则判定为照片的大幅度移动
-    这里由于人脸为立体的且背景基本保持不变，这样当把识别出的人脸范围扩大后判断偏移可排除部分有背景的照片的移动
-    """
-    count = len(offset_check_get(vectors, min_offset))
-    # print 1.0 * count
-    # print len(vectors)
-    # print 1.0 * count / len(vectors)
-    if 1.0 * count / len(vectors) > percent:
-        print '疑似照片' + str(time.time())
-    return 1.0 * count / len(vectors) > percent
-
-
-def offset_check_get(vectors, min_offset=0.0, max_offset=10.0):
-    vectors_pass = []
-    for vector in vectors:
-        (x0, y0), (x1, y1) = vector
-        length = math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2)
-        # if 2.0 < length < 3.0:
-        #     print length
-        if max_offset > length > min_offset:
-            vectors_pass.append(vector)
-            # print vector
-    return vectors_pass
-
-
 def draw_str(dst, target, s, front=(255, 255, 255), back=(0, 0, 0)):
     x, y = target
     cv2.putText(dst, s, (x + 1, y + 1), cv2.FONT_HERSHEY_PLAIN, 1.0, back, thickness=2, lineType=cv2.LINE_AA)
@@ -266,27 +75,21 @@ def main():
     选取八个区域进行规律查找
     :return:
     """
-    print __doc__
+    print(__doc__)
     cap = cv2.VideoCapture(0)
     f_cascade = cv2.CascadeClassifier("C:/opencv/opencv/build/etc/haarcascades/haarcascade_frontalface_alt.xml")
     e_cascade = cv2.CascadeClassifier("C:\\opencv\\opencv\\build\etc\\haarcascades\\haarcascade_eye.xml")
     ret, prev = cap.read()
     prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
 
-    track_len = 10
-    detect_interval = 1
-    tracks = []
-    frame_idx = 0
-
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
     feature_params = dict(maxCorners=500, qualityLevel=0.3, minDistance=7, blockSize=7)
 
-    # test_areas = []  # 固定四个角
-    # test_areas.append((0, 0, 128, 128))  # lu
-    # test_areas.append((640 - 128, 0, 640, 128))  # ru
-    # test_areas.append((640 - 128, 480 - 128, 640, 480))  # rd
-    # test_areas.append((0, 480 - 128, 128, 480))  # ld
+    tracks = []
+    frame_index = 0
+    detect_interval = 5
+    track_len = 10
 
     while True:
         if cv2.waitKey(1) == 27:  # Esc for exit
@@ -301,24 +104,51 @@ def main():
         # draw_rectangles(img, rectangles, color=(255, 225, 0))  # 人脸范围
         # draw_rectangles(img, rectangles, scaling=1.3)  # 扩大后的范围
 
+        if len(tracks) > 0:
+            img0, img1 = prev_gray, gray
+            p0 = np.float32([tr[-1] for tr in tracks]).reshape(-1, 1, 2)
+            p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
+            p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
+            d = abs(p0 - p0r).reshape(-1, 2).max(-1)
+            good = d < 1
+            new_tracks = []
+            for tr, (x, y), good_flag in zip(tracks, p1.reshape(-1, 2), good):
+                if not good_flag:
+                    continue
+                tr.append((x, y))
+                if len(tr) > track_len:
+                    del tr[0]
+                new_tracks.append(tr)
+                cv2.circle(img, (x, y), 2, (0, 255, 0), -1)
+            tracks = new_tracks
+            cv2.polylines(img, [np.int32(tr) for tr in tracks], False, (0, 255, 0))
+            draw_str(img, (20, 20), 'track count: %d' % len(tracks))
+
+        mask = np.zeros_like(gray)
+
         if len(rectangles) == 1:  # 限制一张人脸
             for rectangle in rectangles:
                 rx0, ry0, rx1, ry1 = rectangle
-                mask = np.zeros_like(gray[ry0:ry1, rx0:rx1])
-                mask[:] = 255
-                for x, y in [np.int32(tr[-1]) for tr in tracks]:
-                    cv2.circle(mask, (x, y), 5, 0, -1)
-                p = cv2.goodFeaturesToTrack(gray[ry0:ry1, rx0:rx1], mask=mask, **feature_params)
-                if p is not None:
-                    for x, y in np.int16(p).reshape(-1, 2):
-                        cv2.circle(img[ry0:ry1, rx0:rx1], (x, y), 2, (0, 255, 0), -1)
-                    print len(p)
-                draw_rectangle(img, rectangle, color=(255, 225, 0))  # 人脸范围
-                # cv2.imshow("Face detect", img[ry0:ry1, rx0:rx1])
+                if not (140 < rx1 - rx0 < 160 and 140 < ry1 - ry0 < 160):  # 限定人脸识别框的大小
+                    continue
+                draw_rectangle(img, rectangle, color=(0, 225, 0))  # 人脸范围
+
+                if frame_index % detect_interval == 0:
+                    cv2.fillPoly(mask, np.array([[[rx0, ry0], [rx1, ry0], [rx1, ry1], [rx0, ry1]]]), (255, 255, 255))   # 限定人脸为兴趣区域
+                    p = cv2.goodFeaturesToTrack(gray, mask=mask, **feature_params)
+                    if p is not None:
+                        for x, y in np.float32(p).reshape(-1, 2):
+                            tracks.append([(x, y)])
+                            # cv2.circle(img, (x, y), 2, (0, 255, 0), -1)
+                            # cv2.circle(mask, (x, y), 5, 0, -1)          # 排除当前点
+
+                frame_index += 1
+
         prev_gray = gray
         dt = clock() - t
         # draw_str(img, (20, 20), 'time: %.1f ms' % (dt * 1000))
         cv2.imshow("Face detect", img)
+        cv2.imshow('mask', mask)
     cap.release()
     cv2.destroyAllWindows()
 

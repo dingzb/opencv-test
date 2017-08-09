@@ -59,12 +59,20 @@ class App:
                 p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
                 p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
 
-                for pp in p0:
-                    print(str(round(pp, 2))) + '\t',
-                print()
-                for pp in p0r:
-                    print(str(round(pp, 2))) + '\t',
-                print("-----------------------------------")
+                # for pp in p0:
+                #     pp = pp.reshape(2)
+                #     print('[', end='')
+                #     print(str(round(pp[0], 2)) + '\t', end='')
+                #     print(str(round(pp[1], 2)), end='')
+                #     print('],', end='')
+                # print()
+                # for pp in p0r:
+                #     pp = pp.reshape(2)
+                #     print('[', end=''),
+                #     print(str(round(pp[0], 2)) + '\t', end='')
+                #     print(str(round(pp[1], 2)), end='')
+                #     print('],', end='')
+                # print("-----------------------------------")
 
                 d = abs(p0 - p0r).reshape(-1, 2).max(-1)
                 good = d < 1
@@ -92,6 +100,7 @@ class App:
                 # y)) 排除掉。最后，函数确保所有发现的角点之间具有足够的距离，（最强的角点第一个保留，然后检查新的角点与已有角点之间的距离大于 min_distance ）。
                 p = cv2.goodFeaturesToTrack(frame_gray, mask=mask, **feature_params)
                 if p is not None:
+                    print(len(p))
                     for x, y in np.float32(p).reshape(-1, 2):
                         self.tracks.append([(x, y)])
 
