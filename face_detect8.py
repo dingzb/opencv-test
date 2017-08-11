@@ -77,6 +77,39 @@ def draw_rectangles(img, rectangles, color=(0, 255, 0), scaling=1.0):
         cv2.rectangle(img, xd, yd, color, 2)
 
 
+def opt_flow(p_gray, n_gray, option=None):
+    def_option = dict(
+        pyr_scale=0.5,
+        levels=3,
+        winsize=15,
+        iterations=3,
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0
+    )
+
+    if option is not None:
+        def_option.update(option)
+    flow = cv2.calcOpticalFlowFarneback(p_gray, n_gray, None, **def_option)
+    return flow
+
+
+def draw_flow(detected, flow, show=True, step=16, color=(0, 0, 255)):
+    """draw as line with flow"""
+    h, w = detected.shape[:2]
+    y, x = np.mgrid[step / 2:h:step, step / 2:w:step].reshape(2, -1).astype(int)
+    fx, fy = flow[y, x].T
+    lines = np.vstack([x, y, x + fx, y + fy]).T.reshape(-1, 2, 2)
+    lines = np.int32(lines + 0.5)
+    # vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    vis = detected
+    if show:
+        cv2.polylines(vis, lines, 0, color)  # draw lines
+        for (x1, y1), (x2, y2) in lines:
+            cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)  # redraw the start point
+    return lines
+
+
 def main():
     """
     选取八个区域进行规律查找
@@ -95,10 +128,13 @@ def main():
 
     tracks = []
     frame_index = 0
-    detect_interval = 5
+    detect_interval = 3
     track_len = 10
-
+    msg_show = 0 # 通过信息显示帧数
     has_face = False
+
+    # 存储每一帧的光流
+    eye_flow_lines_t = []
 
     while True:
         if cv2.waitKey(1) == 27:  # Esc for exit
@@ -122,8 +158,37 @@ def main():
                 #     continue
                 draw_rectangle(img, rectangle, color=(0, 225, 0))  # 人脸范围
                 rectangles_eye = detect(gray[ry0:ry1, rx0:rx1], e_cascade)  # 获取眼睛范围
-                draw_rectangles(img[ry0:ry1, rx0:rx1], rectangles_eye, color=(255, 0, 225))
+                # draw_rectangles(img[ry0:ry1, rx0:rx1], rectangles_eye, color=(255, 0, 225))
 
+                # 眼部光流场功能
+                eye_flow_lines = []
+                # for erx0, ery0, erx1, ery1 in rectangles_eye:
+                #     eye_flow = opt_flow(prev_gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1],
+                #                         gray[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1])  # get opt flow
+                #     eye_flow_lines.append(draw_flow(img[ry0:ry1, rx0:rx1][ery0:ery1, erx0:erx1],
+                #                                     eye_flow, step=4))  # 显示光流点
+
+                # 假眼部位置，假设脸纵向上部1/4位置到2/4位置及 横向左部1/6到5/6位置为眼部，以抵消眼部识别不能每次都有效地问题
+
+                face_h = ry1 - ry0
+                face_w = rx1 - rx0
+                face_hs = face_h / 4
+                face_he = face_h / 2
+                face_ws = face_w / 6
+                face_we = face_w / 6 * 5
+                eye_flow = opt_flow(prev_gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we], gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we])
+                eye_flow_lines.append(draw_flow(img[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we], eye_flow, step=4))
+
+                eye_sorted = []  # 排序后的长度集合(眼睛)
+                eye_sorted2 = []
+                for lines in eye_flow_lines:
+                    mds = []
+                    for (x1, y1), (x2, y2) in lines:
+                        md = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+                        mds.append(md)
+                        eye_sorted2.append(md)
+                    eye_sorted.append(sorted(mds, reverse=True))
+                    eye_flow_lines_t.append(eye_sorted2)    # 存储每一帧的光流位移信息
                 # 绘制关键点轨迹
                 # 会删除位移较大的关键点
                 # 不影响其他的鉴别
@@ -155,7 +220,10 @@ def main():
                     cv2.circle(mask, (x, y), 5, 0, -1)  # 排除上一次的关键点
 
                 if frame_index % detect_interval == 0:
+                    print('**************** start ***************')
                     eye_tr = []  # 存放眼睛区域内的关键点
+                    l_sorted = []
+                    l_tmp = []
                     for tr in tracks:
                         (x0, y0) = tr[0]
                         (x1, y1) = tr[-1]
@@ -165,16 +233,51 @@ def main():
                             if erx0 + rx0 < x1 < erx1 + rx0 and ery0 + ry0 < y1 < ery1 + ry0:
                                 eye_tr.append(tr)
 
-                    # # 计算各个关键点的角度和位移，以便观察
-                    #     l = round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2)
-                    #     if l > 2:
-                    #         print(round(math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180, 2), end=':')
-                    #         print(l, end='\t')
-                    # print('\n+++++++++++++++')
+                                # 计算各个关键点的角度和位移，以便观察
+                        l = round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2)
+                        l_tmp.append(l)
+                        # if l > 0:
+                        # print(round(math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180, 2), end=':')
+                        print(l, end='\t')
+                    print('\n+++++++++++++++')
+                    l_sorted = sorted(l_tmp, reverse=True)
+                    # # 观察眼部关键点
+                    # print(len(eye_tr))
+                    # for tr in eye_tr:
+                    #     cv2.circle(img, tr[-1], 4, (255, 255, 0), -1)
 
-                    print(len(eye_tr))
-                    for tr in eye_tr:
-                        cv2.circle(img, tr[-1], 4, (255, 255, 0), -1)
+                    # ========打印前十个=========================
+                    if True:
+                        for i, md2 in enumerate(eye_sorted):
+                            count = 0
+                            print('眼睛', str(i + 1), end=':\t')
+                            for md in md2:
+                                count += 1
+                                if count > 150:
+                                    break
+                                print(round(md, 2), end=',')
+                            print()
+                        print('###################')
+
+                    # 活体检测
+                    np_eye = np.array(sorted(eye_sorted2, reverse=True)[:30])
+                    np_eye = np_eye[np_eye > 0]
+                    np_l = np.array(l_sorted[:10])
+
+                    print(np_eye.size, '+++++', np_l.size)
+                    if np_eye.size != 0 and np_l.size != 0:
+                        flow_pre = np_eye[np_eye > 2].size * 1.0 / np_eye.size
+                        ln_pre = np_l[np_l > 2].size * 1.0 / np_l.size
+                        print(flow_pre, '---', ln_pre)
+                        if 0.8 > flow_pre > 0.05 and ln_pre < 0.2:
+                            msg_show = 30
+                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+
+                    print('**************** end ***************')
+                    # 判断关键点
                     p = cv2.goodFeaturesToTrack(gray, mask=mask, **feature_params)
                     if p is not None:
                         for x, y in np.float32(p).reshape(-1, 2):
@@ -187,6 +290,9 @@ def main():
         prev_gray = gray
         dt = clock() - t
         # draw_str(img, (20, 20), 'time: %.1f ms' % (dt * 1000))
+        if msg_show > 0:
+            draw_str(img, (450, 20), 'YES', front=(0, 0, 255))
+            msg_show -= 1
         cv2.imshow("Face detect", img)
         cv2.imshow('mask', mask)
     cap.release()
@@ -194,4 +300,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # 添加满足添加的点的数量的判断 如 满足条件的点数量必须大于10
     main()
