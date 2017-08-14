@@ -112,14 +112,16 @@ def draw_flow(detected, flow, show=True, step=16, color=(0, 0, 255)):
 
 def main():
     """
-    由于眼部检测的不稳定性，这里采用在已经识别出的人脸范围内假定的眼睛区域作为眼睛区域的判断
-    采用 关键点检测 加 伪眼部光流检测
-    关键点静止但眼部光流明显时判定为活体
-    这个主要判断 眨眼 来做为活体检测的依据
+    采用 伪眼部光流检测
+    在脸部位置相对静止及不眨眼的情况下（眨眼时，眼睛部位的关键点会出现减少情况），
+    眼球中虹膜或瞳孔的关键点的位移与脸部其他位置的关键不同，由此判断
+    在眼部取变化最大的四个点，在眼部外取变化最大的四个点，分别取平均值，然后作比较，相差在指定标准外的则为活体
     :return:
     """
     print(__doc__)
     cap = cv2.VideoCapture(0)
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter('D:/data.avi', fourcc, 30, (640, 480))
     f_cascade = cv2.CascadeClassifier("C:/opencv/opencv/build/etc/haarcascades/haarcascade_frontalface_alt.xml")
     e_cascade = cv2.CascadeClassifier("C:\\opencv\\opencv\\build\etc\\haarcascades\\haarcascade_eye.xml")
     ret, prev = cap.read()
@@ -133,7 +135,7 @@ def main():
     frame_index = 0
     detect_interval = 3
     track_len = 10
-    msg_show = 0 # 通过信息显示帧数
+    msg_show = 0  # 通过信息显示帧数
     has_face = False
 
     # 存储每一帧的光流
@@ -160,7 +162,7 @@ def main():
                 # if not (140 < rx1 - rx0 < 160 and 140 < ry1 - ry0 < 160):  # 限定人脸识别框的大小
                 #     continue
                 draw_rectangle(img, rectangle, color=(0, 225, 0))  # 人脸范围
-                rectangles_eye = detect(gray[ry0:ry1, rx0:rx1], e_cascade)  # 获取眼睛范围
+                # rectangles_eye = detect(gray[ry0:ry1, rx0:rx1], e_cascade)  # 获取眼睛范围
                 # draw_rectangles(img[ry0:ry1, rx0:rx1], rectangles_eye, color=(255, 0, 225))
 
                 # 眼部光流场功能
@@ -179,8 +181,10 @@ def main():
                 face_he = face_h / 2
                 face_ws = face_w / 6
                 face_we = face_w / 6 * 5
-                eye_flow = opt_flow(prev_gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we], gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we])
-                eye_flow_lines.append(draw_flow(img[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we], eye_flow, step=4))
+                eye_flow = opt_flow(prev_gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we],
+                                    gray[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we])
+                eye_flow_lines.append(
+                    draw_flow(img[ry0:ry1, rx0:rx1][face_hs:face_he, face_ws:face_we], eye_flow, step=4))
 
                 eye_sorted = []  # 排序后的长度集合(眼睛)
                 eye_sorted2 = []
@@ -191,7 +195,7 @@ def main():
                         mds.append(md)
                         eye_sorted2.append(md)
                     eye_sorted.append(sorted(mds, reverse=True))
-                    eye_flow_lines_t.append(eye_sorted2)    # 存储每一帧的光流位移信息
+                    eye_flow_lines_t.append(eye_sorted2)  # 存储每一帧的光流位移信息
                 # 绘制关键点轨迹
                 # 会删除位移较大的关键点
                 # 不影响其他的鉴别
@@ -223,63 +227,76 @@ def main():
                     cv2.circle(mask, (x, y), 5, 0, -1)  # 排除上一次的关键点
 
                 if frame_index % detect_interval == 0:
-                    print('**************** start ***************')
-                    eye_tr = []  # 存放眼睛区域内的关键点
+                    # print('**************** start ***************')
                     l_sorted = []
+                    l_sorted_eye = []  # 眼睛区域的关键点
+                    l_sorted_out = []  # 眼睛外部的关键点
+
                     l_tmp = []
+                    l_tmp_eye = []
+                    l_tmp_out = []
                     for tr in tracks:
                         (x0, y0) = tr[0]
                         (x1, y1) = tr[-1]
 
-                        # 判断各个关键点(关键点轨迹中的最后一个)是否在眼睛区域范围内
-                        for erx0, ery0, erx1, ery1 in rectangles_eye:
-                            if erx0 + rx0 < x1 < erx1 + rx0 and ery0 + ry0 < y1 < ery1 + ry0:
-                                eye_tr.append(tr)
+                        if rx0 + face_ws < x1 < rx0 + face_we and ry0 + face_hs < y1 < ry1 + face_he:
+                            l_tmp_eye.append(round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2))
+                        else:
+                            l_tmp_out.append(round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2))
 
-                                # 计算各个关键点的角度和位移，以便观察
+                        # 计算各个关键点的角度和位移，以便观察
                         l = round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2)
                         l_tmp.append(l)
                         # if l > 0:
                         # print(round(math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180, 2), end=':')
-                        print(l, end='\t')
-                    print('\n+++++++++++++++')
+                        # print(l, end='\t')
+                    # print('\n+++++++++++++++')
                     l_sorted = sorted(l_tmp, reverse=True)
-                    # # 观察眼部关键点
-                    # print(len(eye_tr))
-                    # for tr in eye_tr:
-                    #     cv2.circle(img, tr[-1], 4, (255, 255, 0), -1)
+                    l_sorted_eye = sorted(l_tmp_eye, reverse=True)
+                    l_sorted_out = sorted(l_tmp_out, reverse=True)
+                    print(l_sorted_eye)
+                    print(l_sorted_out)
+                    if len(l_sorted_out) > 3 and len(l_sorted_eye) > 3 \
+                            and l_sorted_out[0] < 1 and l_sorted_eye[0] > 1 \
+                            and l_sorted_eye[0] - l_sorted_out[0] > 1:
+                        print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                        print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                        print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                        print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                        msg_show = 30
 
-                    # ========打印前十个=========================
-                    if True:
-                        for i, md2 in enumerate(eye_sorted):
-                            count = 0
-                            print('眼睛', str(i + 1), end=':\t')
-                            for md in md2:
-                                count += 1
-                                if count > 150:
-                                    break
-                                print(round(md, 2), end=',')
-                            print()
-                        print('###################')
+                    # # ========打印前十个=========================
+                    # if True:
+                    #     for i, md2 in enumerate(eye_sorted):
+                    #         count = 0
+                    #         print('眼睛', str(i + 1), end=':\t')
+                    #         for md in md2:
+                    #             count += 1
+                    #             if count > 150:
+                    #                 break
+                    #             print(round(md, 2), end=',')
+                    #         print()
+                    #     print('###################')
+                    #
+                    # # 活体检测
+                    # np_eye = np.array(sorted(eye_sorted2, reverse=True)[:30])
+                    # np_eye = np_eye[np_eye > 0]
+                    # np_l = np.array(l_sorted[:10])
+                    #
+                    # print('length: ', np_eye.size, '+++++', np_l.size)
+                    # if np_eye.size != 0 and np_l.size != 0:
+                    #     flow_per = np_eye[np_eye > 2].size * 1.0 / np_eye.size
+                    #     ln_per = np_l[np_l > 2].size * 1.0 / np_l.size
+                    #     print('percent: ', flow_per, '---', ln_per)
+                    #     print(0.8, ' > ', flow_per, ' > ', 0.05, ' and ln_pre < ', 0.2)
+                    #     if 0.8 > flow_per > 0.05 and ln_per < 0.2:
+                    #         msg_show = 30
+                    #         print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                    #         print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                    #         print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                    #         print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
 
-                    # 活体检测
-                    np_eye = np.array(sorted(eye_sorted2, reverse=True)[:30])
-                    np_eye = np_eye[np_eye > 0]
-                    np_l = np.array(l_sorted[:10])
-
-                    print(np_eye.size, '+++++', np_l.size)
-                    if np_eye.size != 0 and np_l.size != 0:
-                        flow_pre = np_eye[np_eye > 2].size * 1.0 / np_eye.size
-                        ln_pre = np_l[np_l > 2].size * 1.0 / np_l.size
-                        print(flow_pre, '---', ln_pre)
-                        if 0.8 > flow_pre > 0.05 and ln_pre < 0.2:
-                            msg_show = 30
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-
-                    print('**************** end ***************')
+                    # print('**************** end ***************')
                     # 判断关键点
                     p = cv2.goodFeaturesToTrack(gray, mask=mask, **feature_params)
                     if p is not None:
@@ -297,8 +314,10 @@ def main():
             draw_str(img, (450, 20), 'YES', front=(0, 0, 255))
             msg_show -= 1
         cv2.imshow("Face detect", img)
-        cv2.imshow('mask', mask)
+        out.write(img)
+        # cv2.imshow('mask', mask)
     cap.release()
+    out.release()
     cv2.destroyAllWindows()
 
 

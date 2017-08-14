@@ -120,6 +120,8 @@ def main():
     """
     print(__doc__)
     cap = cv2.VideoCapture(0)
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter('D:/data.avi', fourcc, 30, (640, 480))
     f_cascade = cv2.CascadeClassifier("C:/opencv/opencv/build/etc/haarcascades/haarcascade_frontalface_alt.xml")
     e_cascade = cv2.CascadeClassifier("C:\\opencv\\opencv\\build\etc\\haarcascades\\haarcascade_eye.xml")
     ret, prev = cap.read()
@@ -133,7 +135,8 @@ def main():
     frame_index = 0
     detect_interval = 3
     track_len = 10
-    msg_show = 0 # 通过信息显示帧数
+    msg_show_opt = 0 # 通过信息显示帧数
+    msg_show_key = 0 # 通过信息显示帧数
     has_face = False
 
     # 存储每一帧的光流
@@ -224,30 +227,41 @@ def main():
 
                 if frame_index % detect_interval == 0:
                     print('**************** start ***************')
-                    eye_tr = []  # 存放眼睛区域内的关键点
                     l_sorted = []
+                    l_sorted_eye = []  # 眼睛区域的关键点
+                    l_sorted_out = []  # 眼睛外部的关键点
+
                     l_tmp = []
+                    l_tmp_eye = []
+                    l_tmp_out = []
                     for tr in tracks:
                         (x0, y0) = tr[0]
                         (x1, y1) = tr[-1]
 
-                        # 判断各个关键点(关键点轨迹中的最后一个)是否在眼睛区域范围内
-                        for erx0, ery0, erx1, ery1 in rectangles_eye:
-                            if erx0 + rx0 < x1 < erx1 + rx0 and ery0 + ry0 < y1 < ery1 + ry0:
-                                eye_tr.append(tr)
+                        if rx0 + face_ws < x1 < rx0 + face_we and ry0 + face_hs < y1 < ry1 + face_he:
+                            l_tmp_eye.append(round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2))
+                        else:
+                            l_tmp_out.append(round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2))
 
-                                # 计算各个关键点的角度和位移，以便观察
                         l = round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2), 2)
                         l_tmp.append(l)
                         # if l > 0:
                         # print(round(math.atan(abs((y1 - y0) / (x1 - x0))) / math.pi * 180, 2), end=':')
                         print(l, end='\t')
                     print('\n+++++++++++++++')
+
                     l_sorted = sorted(l_tmp, reverse=True)
-                    # # 观察眼部关键点
-                    # print(len(eye_tr))
-                    # for tr in eye_tr:
-                    #     cv2.circle(img, tr[-1], 4, (255, 255, 0), -1)
+                    l_sorted_eye = sorted(l_tmp_eye, reverse=True)
+                    l_sorted_out = sorted(l_tmp_out, reverse=True)
+
+                    if len(l_sorted_eye) > 3 and len(l_sorted_out) > 3:
+                        eye_avg = sum(l_sorted_eye[:4]) / 4
+                        out_avg = sum(l_sorted_out[:4]) / 4
+                        print('eye: ', l_sorted_eye[:4], eye_avg)
+                        print('out: ', l_sorted_out[:4], out_avg)
+                        if out_avg < 1 and eye_avg - out_avg > 2:
+                            print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+                            msg_show_key = 30
 
                     # ========打印前十个=========================
                     if True:
@@ -273,10 +287,7 @@ def main():
                         ln_pre = np_l[np_l > 2].size * 1.0 / np_l.size
                         print(flow_pre, '---', ln_pre)
                         if 0.8 > flow_pre > 0.05 and ln_pre < 0.2:
-                            msg_show = 30
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
-                            print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+                            msg_show_opt = 30
                             print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
 
                     print('**************** end ***************')
@@ -293,12 +304,17 @@ def main():
         prev_gray = gray
         dt = clock() - t
         # draw_str(img, (20, 20), 'time: %.1f ms' % (dt * 1000))
-        if msg_show > 0:
-            draw_str(img, (450, 20), 'YES', front=(0, 0, 255))
-            msg_show -= 1
+        if msg_show_key > 0:
+            draw_str(img, (450, 20), 'YES by KEY', front=(0, 0, 255))
+            msg_show_key -= 1
+        if msg_show_opt > 0:
+            draw_str(img, (450, 20), 'YES by OPT', front=(0, 0, 255))
+            msg_show_opt -= 1
         cv2.imshow("Face detect", img)
-        cv2.imshow('mask', mask)
+        out.write(img)
+        # cv2.imshow('mask', mask)
     cap.release()
+    out.release()
     cv2.destroyAllWindows()
 
 
