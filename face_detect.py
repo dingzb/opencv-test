@@ -286,8 +286,8 @@ def main():
 
         for rectangle in rectangles:
             rx0, ry0, rx1, ry1 = rectangle
-            if rx1 - rx0 != 151 and ry1 - ry0 != 151:  # 限定人脸识别框的大小
-                continue
+            # if rx1 - rx0 != 151 and ry1 - ry0 != 151:  # 限定人脸识别框的大小
+            #     continue
             draw_rectangle(img, rectangle, color=(255, 225, 0))  # 人脸范围
             draw_rectangle(img, rectangle, scaling=1.4)  # 扩大后的范围
             rectangles_eye = detect(gray[ry0:ry1, rx0:rx1], e_cascade)
